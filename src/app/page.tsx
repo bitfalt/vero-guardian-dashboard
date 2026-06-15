@@ -119,12 +119,12 @@ export default function Home() {
       {/* Footer */}
       <footer className="border-t border-slate-800 mt-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-            <p className="text-sm text-slate-500">© 2026 Vero Guardian. All rights reserved.</p>
-            <div className="flex items-center gap-6">
-              <a href="#" className="text-sm text-slate-400 hover:text-slate-200 transition-colors">Documentation</a>
-              <a href="#" className="text-sm text-slate-400 hover:text-slate-200 transition-colors">Discord</a>
-              <a href="#" className="text-sm text-slate-400 hover:text-slate-200 transition-colors">GitHub</a>
+          <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+            <p className="text-sm text-slate-500 text-center md:text-left">© 2026 Vero Guardian. All rights reserved.</p>
+            <div className="flex flex-wrap justify-center items-center gap-4 sm:gap-6">
+              <a href="#" className="flex items-center text-sm text-slate-400 hover:text-slate-200 transition-colors min-h-[44px] px-2">Documentation</a>
+              <a href="#" className="flex items-center text-sm text-slate-400 hover:text-slate-200 transition-colors min-h-[44px] px-2">Discord</a>
+              <a href="#" className="flex items-center text-sm text-slate-400 hover:text-slate-200 transition-colors min-h-[44px] px-2">GitHub</a>
             </div>
           </div>
         </div>
