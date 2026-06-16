@@ -5,6 +5,8 @@ import PRFeed from '@/components/PRFeed';
 import TaskCard from '@/components/TaskCard';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import ThemeToggle from '@/components/ThemeToggle';
+import ConnectButton from '@/components/ConnectButton';
+import NetworkStatus from '@/components/NetworkStatus';
 import { Shield, Trophy, Activity, ArrowRight, Code2, CheckCircle2 } from 'lucide-react';
 
 export default function Home() {
@@ -131,16 +133,19 @@ export default function Home() {
       {/* Footer */}
       <footer className="border-t border-slate-200 dark:border-slate-800 mt-12 bg-white dark:bg-slate-950">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-            <p className="text-sm text-slate-600 dark:text-slate-500">© 2026 Vero Guardian. All rights reserved.</p>
-            <nav className="flex items-center gap-6" aria-label="Footer Navigation">
-              <a href="#" className="text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 transition-colors focus:outline-none focus:underline">Documentation</a>
-              <a href="#" className="text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 transition-colors focus:outline-none focus:underline">Discord</a>
-              <a href="#" className="text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 transition-colors focus:outline-none focus:underline">GitHub</a>
-            </nav>
+          <div className="flex flex-col gap-6">
+            <NetworkStatus />
+            <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+              <p className="text-sm text-slate-600 dark:text-slate-500">© 2026 Vero Guardian. All rights reserved.</p>
+              <nav className="flex items-center gap-6" aria-label="Footer Navigation">
+                <a href="#" className="text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 transition-colors focus:outline-none focus:underline">Documentation</a>
+                <a href="#" className="text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 transition-colors focus:outline-none focus:underline">Discord</a>
+                <a href="#" className="text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 transition-colors focus:outline-none focus:underline">GitHub</a>
+              </nav>
+            </div>
           </div>
         </div>
       </footer>
-    </Layout>
+    </div>
   );
 }
