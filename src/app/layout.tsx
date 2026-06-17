@@ -1,7 +1,9 @@
 import './globals.css';
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
+import type { ReactElement, ReactNode } from 'react';
 import { WalletProvider } from '@/context/WalletContext';
+import { RoleProvider } from '@/context/RoleContext';
 import { ToastProvider } from '@/components/Toast';
 import { ThemeProvider } from '@/context/ThemeContext';
 
@@ -12,19 +14,21 @@ export const metadata: Metadata = {
   description: 'Decentralized Validation Network Dashboard',
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+interface RootLayoutProps {
+  children: ReactNode;
+}
+
+export default function RootLayout({ children }: RootLayoutProps): ReactElement {
   return (
     <html lang="en" className={inter.className}>
       <body className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 transition-colors duration-200">
         <ThemeProvider>
           <WalletProvider>
-            <ToastProvider>
-              {children}
-            </ToastProvider>
+            <RoleProvider>
+              <ToastProvider>
+                {children}
+              </ToastProvider>
+            </RoleProvider>
           </WalletProvider>
         </ThemeProvider>
       </body>

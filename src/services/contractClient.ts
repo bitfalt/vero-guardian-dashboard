@@ -7,50 +7,13 @@ const HORIZON_URL =
 const server = new StellarSdk.Horizon.Server(HORIZON_URL);
 
 /**
- * Authorized Guardian public keys.
- * In production, source this from an on-chain data entry or verified API.
- * Keys are read from NEXT_PUBLIC_GUARDIAN_ADDRESSES (comma-separated) with an
- * optional compile-time fallback list for development.
- */
-function getAuthorizedGuardians(): Set<string> {
-  const envList = process.env.NEXT_PUBLIC_GUARDIAN_ADDRESSES ?? '';
-  const keys = envList
-    .split(',')
-    .map((k) => k.trim())
-    .filter(Boolean);
-  return new Set(keys);
-}
-
-/** Thrown when the signing address is not in the Guardian allow-list. */
-export class UnauthorizedGuardianError extends Error {
-  constructor(publicKey: string) {
-    super(`Address ${publicKey} is not an authorized Guardian`);
-    this.name = 'UnauthorizedGuardianError';
-  }
-}
-
-/**
- * Validate that `publicKey` is in the authorized Guardian list.
- * @throws {UnauthorizedGuardianError} if the key is not authorized.
- */
-export function assertAuthorizedGuardian(publicKey: string): void {
-  const guardians = getAuthorizedGuardians();
-  // When no list is configured (e.g., local dev), allow all connected wallets.
-  if (guardians.size === 0) return;
-  if (!guardians.has(publicKey)) throw new UnauthorizedGuardianError(publicKey);
-}
-
-/**
- * Build, Guardian-validate, Freighter-sign, and submit a vote transaction.
+ * Build, Freighter-sign, and submit a vote transaction.
  *
- * @param prId      GitHub PR number registered by the Vero Relayer
- * @param publicKey Guardian's Stellar public key from WalletContext
- * @returns         Submitted transaction hash
- * @throws {UnauthorizedGuardianError} if `publicKey` is not authorized
+ * @param prId GitHub PR number registered by the Vero Relayer
+ * @param publicKey Stellar public key from WalletContext
+ * @returns Submitted transaction hash
  */
 export async function castVote(prId: number, publicKey: string): Promise<string> {
-  assertAuthorizedGuardian(publicKey);
-
   const account = await server.loadAccount(publicKey);
 
   const tx = new StellarSdk.TransactionBuilder(account, {
@@ -63,12 +26,16 @@ export async function castVote(prId: number, publicKey: string): Promise<string>
     .setTimeout(30)
     .build();
 
-  const { signedTxXdr } = await signTransaction(tx.toXDR(), {
+  const signed = await signTransaction(tx.toXDR(), {
     networkPassphrase: StellarSdk.Networks.TESTNET,
+    address: publicKey,
   });
+  if (signed.error) {
+    throw new Error(signed.error.message ?? 'Freighter failed to sign the vote transaction');
+  }
 
   const signedTx = StellarSdk.TransactionBuilder.fromXDR(
-    signedTxXdr,
+    signed.signedTxXdr,
     StellarSdk.Networks.TESTNET
   );
 

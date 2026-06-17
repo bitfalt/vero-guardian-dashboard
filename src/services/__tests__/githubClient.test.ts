@@ -1,20 +1,28 @@
-import fetch, { Response } from 'node-fetch';
-import { fetchPRMetadata } from '../../githubClient';
+import { fetchPRMetadata } from '../githubClient';
 
-jest.mock('node-fetch', () => jest.fn());
-
-const mockedFetch = fetch as jest.MockedFunction<typeof fetch>;
+const mockedFetch = jest.fn<ReturnType<typeof fetch>, Parameters<typeof fetch>>();
 
 describe('fetchPRMetadata', () => {
   const originalEnv = process.env;
+  const originalFetch = global.fetch;
 
   beforeEach(() => {
-    jest.resetAllMocks();
+    mockedFetch.mockReset();
+    Object.defineProperty(global, 'fetch', {
+      configurable: true,
+      value: mockedFetch,
+      writable: true,
+    });
     process.env = { ...originalEnv, GITHUB_TOKEN: 'dummy-token' };
   });
 
   afterAll(() => {
     process.env = originalEnv;
+    Object.defineProperty(global, 'fetch', {
+      configurable: true,
+      value: originalFetch,
+      writable: true,
+    });
   });
 
   it('returns PR data on success', async () => {

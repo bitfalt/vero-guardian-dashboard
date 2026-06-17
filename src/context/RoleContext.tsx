@@ -1,0 +1,113 @@
+'use client';
+
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
+
+import { useWallet } from '@/context/WalletContext';
+import { fetchUserRole, type UserRole } from '@/services/roleClient';
+
+interface RoleContextValue {
+  role: UserRole;
+  isAdmin: boolean;
+  isGuardian: boolean;
+  canVote: boolean;
+  canManageTasks: boolean;
+  isLoading: boolean;
+  error: string | null;
+  refreshRole: () => Promise<void>;
+}
+
+const RoleContext = createContext<RoleContextValue | undefined>(undefined);
+
+function getRoleErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  return 'Unable to load wallet role';
+}
+
+export function RoleProvider({ children }: { children: ReactNode }) {
+  const { publicKey, isLoading: isWalletLoading } = useWallet();
+  const [role, setRole] = useState<UserRole>('unauthorized');
+  const [isRoleLoading, setIsRoleLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const requestIdRef = useRef(0);
+
+  const refreshRole = useCallback(async () => {
+    const requestId = requestIdRef.current + 1;
+    requestIdRef.current = requestId;
+
+    if (!publicKey) {
+      setRole('unauthorized');
+      setError(null);
+      setIsRoleLoading(false);
+      return;
+    }
+
+    setIsRoleLoading(true);
+    setError(null);
+
+    try {
+      const nextRole = await fetchUserRole(publicKey);
+      if (requestIdRef.current !== requestId) {
+        return;
+      }
+
+      setRole(nextRole);
+    } catch (roleError) {
+      if (requestIdRef.current !== requestId) {
+        return;
+      }
+
+      setRole('unauthorized');
+      setError(getRoleErrorMessage(roleError));
+    } finally {
+      if (requestIdRef.current === requestId) {
+        setIsRoleLoading(false);
+      }
+    }
+  }, [publicKey]);
+
+  useEffect(() => {
+    void refreshRole();
+
+    return () => {
+      requestIdRef.current += 1;
+    };
+  }, [refreshRole]);
+
+  const value = useMemo<RoleContextValue>(() => {
+    const isAdmin = role === 'admin';
+    const isGuardian = role === 'guardian';
+
+    return {
+      role,
+      isAdmin,
+      isGuardian,
+      canVote: isAdmin || isGuardian,
+      canManageTasks: isAdmin,
+      isLoading: isWalletLoading || isRoleLoading,
+      error,
+      refreshRole,
+    };
+  }, [error, isRoleLoading, isWalletLoading, refreshRole, role]);
+
+  return <RoleContext.Provider value={value}>{children}</RoleContext.Provider>;
+}
+
+export function useRole(): RoleContextValue {
+  const context = useContext(RoleContext);
+  if (!context) {
+    throw new Error('useRole must be used within a RoleProvider');
+  }
+  return context;
+}

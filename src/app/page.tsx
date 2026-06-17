@@ -1,16 +1,91 @@
 'use client';
 
-import { useWallet } from '@/context/WalletContext';
+import type { ReactElement } from 'react';
+import { Activity, ArrowRight, CheckCircle2, Code2, Shield, Trophy } from 'lucide-react';
+import ConnectButton from '@/components/ConnectButton';
+import ErrorBoundary from '@/components/ErrorBoundary';
+import { AccessControl } from '@/components/Guard';
+import NetworkStatus from '@/components/NetworkStatus';
 import PRFeed from '@/components/PRFeed';
 import TaskCard from '@/components/TaskCard';
-import ErrorBoundary from '@/components/ErrorBoundary';
 import ThemeToggle from '@/components/ThemeToggle';
-import ConnectButton from '@/components/ConnectButton';
-import NetworkStatus from '@/components/NetworkStatus';
-import { Shield, Trophy, Activity, ArrowRight, Code2, CheckCircle2 } from 'lucide-react';
+import { useRole } from '@/context/RoleContext';
+import { useWallet } from '@/context/WalletContext';
+import type { UserRole } from '@/services/roleClient';
 
-export default function Home() {
+function getRoleLabel(role: UserRole, isLoading: boolean): string {
+  if (isLoading) {
+    return 'Checking…';
+  }
+
+  switch (role) {
+    case 'admin':
+      return 'Admin';
+    case 'guardian':
+      return 'Guardian';
+    default:
+      return 'Unauthorized';
+  }
+}
+
+function getRoleHelperText(
+  role: UserRole,
+  isConnected: boolean,
+  isLoading: boolean,
+): string {
+  if (isLoading) {
+    return 'Checking on-chain role';
+  }
+
+  if (!isConnected) {
+    return 'Connect wallet';
+  }
+
+  if (role === 'unauthorized') {
+    return 'No dashboard permissions';
+  }
+
+  return 'On-chain access';
+}
+
+function getWelcomeTitle(
+  isConnected: boolean,
+  isRoleLoading: boolean,
+  roleLabel: string,
+): string {
+  if (!isConnected) {
+    return 'Welcome to Vero Guardian!';
+  }
+
+  if (isRoleLoading) {
+    return 'Checking dashboard access…';
+  }
+
+  return `Welcome back, ${roleLabel}!`;
+}
+
+function getWelcomeDescription(role: UserRole, isRoleLoading: boolean): string {
+  if (isRoleLoading) {
+    return 'Checking your on-chain role before enabling dashboard actions.';
+  }
+
+  switch (role) {
+    case 'admin':
+      return 'Manage guardian tasks, monitor validation activity, and keep the network secure.';
+    case 'guardian':
+      return 'Review and validate pull requests to maintain network security and earn rewards.';
+    default:
+      return 'Connect an authorized wallet to review and validate pull requests.';
+  }
+}
+
+export default function Home(): ReactElement {
   const { isConnected, reputation } = useWallet();
+  const { role, isLoading: isRoleLoading } = useRole();
+  const roleLabel = getRoleLabel(role, isRoleLoading);
+  const roleHelperText = getRoleHelperText(role, isConnected, isRoleLoading);
+  const welcomeTitle = getWelcomeTitle(isConnected, isRoleLoading, roleLabel);
+  const welcomeDescription = getWelcomeDescription(role, isRoleLoading);
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 dark:bg-slate-950 dark:text-slate-100 transition-colors duration-200">
@@ -43,10 +118,10 @@ export default function Home() {
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
               <div>
                 <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">
-                  Welcome back, Guardian!
+                  {welcomeTitle}
                 </h2>
                 <p className="text-slate-600 dark:text-slate-400 max-w-xl">
-                  Review and validate pull requests to maintain network security and earn rewards.
+                  {welcomeDescription}
                 </p>
               </div>
               <div className="flex flex-wrap gap-4">
@@ -66,6 +141,14 @@ export default function Home() {
                 </div>
                 <div className="bg-white/80 dark:bg-slate-800/80 rounded-xl px-4 py-3 border border-slate-200 dark:border-slate-700">
                   <div className="flex items-center gap-2 text-indigo-700 dark:text-indigo-400 mb-1">
+                    <Shield className="w-4 h-4" aria-hidden="true" />
+                    <span className="text-xs font-semibold uppercase tracking-wider">Role</span>
+                  </div>
+                  <p className="text-2xl font-bold text-slate-900 dark:text-white" aria-live="polite">{roleLabel}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{roleHelperText}</p>
+                </div>
+                <div className="bg-white/80 dark:bg-slate-800/80 rounded-xl px-4 py-3 border border-slate-200 dark:border-slate-700">
+                  <div className="flex items-center gap-2 text-sky-700 dark:text-sky-400 mb-1">
                     <Activity className="w-4 h-4" aria-hidden="true" />
                     <span className="text-xs font-semibold uppercase tracking-wider">Active</span>
                   </div>
@@ -87,14 +170,19 @@ export default function Home() {
             </ErrorBoundary>
           </div>
 
-          {/* Right Column - Tasks & Quick Actions */}
+          {/* Right Column - Admin Management & Quick Actions */}
           <div className="space-y-6">
-            {/* Tasks */}
-            <ErrorBoundary>
-              <div className="bg-white dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-lg">
-                <TaskCard />
-              </div>
-            </ErrorBoundary>
+            <AccessControl roles={['admin']}>
+              {/* Admin Management */}
+              <ErrorBoundary>
+                <div className="bg-white dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-lg">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-indigo-700 dark:text-indigo-400 mb-3">
+                    Admin Management
+                  </p>
+                  <TaskCard />
+                </div>
+              </ErrorBoundary>
+            </AccessControl>
 
             {/* Quick Actions */}
             <div className="bg-white dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-lg">

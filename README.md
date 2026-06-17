@@ -90,14 +90,13 @@ Each Guardian's trust score is tracked as `vero_reputation` on their Stellar acc
 ```
 <RootLayout>
   └── <WalletContext.Provider>
-        ├── <ConnectButton />          # Freighter wallet connect/disconnect
-        ├── <PRFeed />                 # Fetches open PRs, renders list
-        │     └── <VoteCard pr={...} />  # Per-PR card with vote button
-        │           ├── PR metadata (title, number, author)
-        │           ├── Label badges
-        │           └── <button onClick={handleVote}>Vote</button>
-        ├── <ReputationBadge />        # Reads vero_reputation from Horizon
-        └── <Toast />                  # Success/error notifications
+        └── <RoleContext.Provider>
+              ├── <ConnectButton />          # Freighter wallet connect/disconnect
+              ├── <PRFeed />                 # Fetches open PRs, renders list
+              │     └── <VoteCard pr={...} />  # Per-PR card with guarded vote button
+              ├── <AccessControl />          # Role-gated Admin vs Guardian UI
+              ├── <ReputationBadge />        # Reads vero_reputation from Horizon
+              └── <Toast />                  # Success/error notifications
 ```
 
 ---
@@ -299,6 +298,9 @@ NEXT_PUBLIC_SOROBAN_RPC_URL=https://soroban-testnet.stellar.org
 # Stellar Horizon REST API
 NEXT_PUBLIC_HORIZON_URL=https://horizon-testnet.stellar.org
 
+# Optional Horizon account that stores admin/guardian role map entries
+NEXT_PUBLIC_ROLE_REGISTRY_ACCOUNT=G...
+
 # Relayer: Guardian's Stellar secret key (server-side only, never expose to browser)
 STELLAR_SECRET_KEY=S...
 
@@ -310,6 +312,7 @@ STELLAR_NETWORK=testnet
 |---|---|---|
 | `NEXT_PUBLIC_SOROBAN_RPC_URL` | Soroban RPC endpoint | `https://soroban-testnet.stellar.org` |
 | `NEXT_PUBLIC_HORIZON_URL` | Stellar Horizon REST API | `https://horizon-testnet.stellar.org` |
+| `NEXT_PUBLIC_ROLE_REGISTRY_ACCOUNT` | Optional Horizon account containing admin/guardian role map entries | connected wallet account |
 | `STELLAR_SECRET_KEY` | Relayer signing key (server only) | — |
 | `STELLAR_NETWORK` | `testnet` or `mainnet` | `testnet` |
 
@@ -450,15 +453,16 @@ export function ReputationBadge() {
 
 ### Wallet Context
 
-The `WalletContext` provides a resilient Freighter wallet connection state with localStorage persistence and an easy-to-use hook API.
+The `WalletContext` provides a resilient Freighter wallet connection state with localStorage-backed persistence that is verified against the current Freighter address before use.
 
 Key features:
 
-- Persistent `publicKey` stored under `vero_wallet_publicKey` in `localStorage`.
-- `freighter-account-change` event listener to react to account switches in the Freighter extension.
-- `connect()` uses `@stellar/freighter-api`'s `getPublicKey()` and surfaces errors.
+- Stores the verified `publicKey` under `vero_wallet_publicKey` in `localStorage`.
+- Verifies persisted keys against Freighter `isConnected()`/`getAddress()` before restoring UI state.
+- `WatchWalletChanges` and `freighter-account-change` listeners clear or update wallet state when the active Freighter account changes.
+- `connect()` uses `@stellar/freighter-api`'s `requestAccess()` and surfaces errors.
 - `disconnect()` clears state and stored key.
-- Exposes `isLoading` and `error` states for UI feedback.
+- Exposes `isLoading`, `error`, and `reputation` states for UI feedback.
 
 API
 
@@ -471,6 +475,7 @@ type UseWallet = {
   isConnected: boolean;          // shorthand for !!publicKey
   isLoading: boolean;            // true while connecting or initializing
   error: string | null;          // human-friendly error message
+  reputation: number;            // current reputation score shown in the dashboard
   connect(): Promise<void>;      // prompts Freighter to return public key
   disconnect(): void;            // clears key and localStorage
 };
@@ -527,8 +532,16 @@ export function ConnectButton() {
 Notes
 
 - If Freighter is not installed, `connect()` will set `error` to a helpful message.
-- The provider initializes from `localStorage` on mount so reconnects survive page reloads.
-- The `freighter-account-change` event is handled to clear stored keys when the user switches accounts in Freighter.
+- Persisted wallet state is restored only after Freighter confirms the same current address.
+- Freighter wallet change listeners update or clear stored keys when the user switches accounts.
+
+### Role Context
+
+`RoleContext` fetches the connected wallet's role from Horizon account data and exposes derived permissions for UI guards.
+
+Role data is read from `NEXT_PUBLIC_ROLE_REGISTRY_ACCOUNT` when configured; otherwise, the connected wallet account is inspected. Supported active role markers include `admin:<publicKey>`, `admin_<publicKey>`, `guardian:<publicKey>`, `guardian_<publicKey>`, and exact connected-account keys such as `admin`, `guardian`, or `role`.
+
+Use `AccessControl` to hide admin-only UI from Guardians and unauthorized wallets, and use `useRole()` to block direct UI handlers before invoking guarded actions.
 
 ---
 

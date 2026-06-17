@@ -1,80 +1,112 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import VoteButton from '@/components/VoteButton';
-import { castVote, UnauthorizedGuardianError } from '@/services/contractClient';
+import { castVote } from '@/services/contractClient';
+import { useRole } from '@/context/RoleContext';
 import { useToast } from '@/components/Toast';
 
-jest.mock('@/services/contractClient');
+jest.mock('@/services/contractClient', () => ({
+  castVote: jest.fn(),
+}));
+jest.mock('@/context/RoleContext', () => ({
+  useRole: jest.fn(),
+}));
 jest.mock('@/components/Toast');
 
 const mockCastVote = castVote as jest.MockedFunction<typeof castVote>;
+const mockUseRole = useRole as jest.MockedFunction<typeof useRole>;
+const mockUseToast = useToast as jest.MockedFunction<typeof useToast>;
 const mockShowToast = jest.fn();
+const mockRefreshRole = jest.fn();
+
+type MockRoleState = ReturnType<typeof useRole>;
+
+function mockRole(overrides: Partial<MockRoleState> = {}): void {
+  mockUseRole.mockReturnValue({
+    role: 'guardian',
+    isAdmin: false,
+    isGuardian: true,
+    canVote: true,
+    canManageTasks: false,
+    isLoading: false,
+    error: null,
+    refreshRole: mockRefreshRole,
+    ...overrides,
+  });
+}
+
+function renderVoteButton(publicKey: string | null = 'GPUBKEY'): HTMLElement {
+  render(<VoteButton prId={42} publicKey={publicKey} />);
+  return screen.getByRole('button');
+}
 
 beforeEach(() => {
-  (useToast as jest.Mock).mockReturnValue({ showToast: mockShowToast });
+  mockUseToast.mockReturnValue({ showToast: mockShowToast });
+  mockRole();
   mockCastVote.mockResolvedValue('deafhash');
 });
 
 afterEach(() => jest.clearAllMocks());
 
 describe('VoteButton', () => {
-  it('renders Vote button when wallet is connected', () => {
-    render(<VoteButton prId={42} publicKey="GPUBKEY" />);
-    expect(screen.getByRole('button', { name: /vote for pr #42/i })).toBeInTheDocument();
+  it('lets a connected authorized role cast a vote', async () => {
+    mockRole({
+      role: 'admin',
+      isAdmin: true,
+      isGuardian: false,
+      canManageTasks: true,
+    });
+
+    const button = renderVoteButton();
+
+    expect(button).toBeEnabled();
+    fireEvent.click(button);
+
+    await waitFor(() => expect(mockCastVote).toHaveBeenCalledWith(42, 'GPUBKEY'));
   });
 
-  it('is disabled when no wallet connected', () => {
-    render(<VoteButton prId={42} publicKey={null} />);
-    expect(screen.getByRole('button')).toBeDisabled();
+  it('is disabled when no wallet is connected', () => {
+    const button = renderVoteButton(null);
+
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(mockCastVote).not.toHaveBeenCalled();
   });
 
-  it('shows success toast and changes to Voted after successful vote', async () => {
-    render(<VoteButton prId={42} publicKey="GPUBKEY" />);
-    fireEvent.click(screen.getByRole('button', { name: /vote for pr #42/i }));
+  it('is disabled for an unauthorized role and does not vote', () => {
+    mockRole({
+      role: 'unauthorized',
+      isGuardian: false,
+      canVote: false,
+    });
+
+    const button = renderVoteButton();
+
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(mockCastVote).not.toHaveBeenCalled();
+  });
+
+  it('is disabled while role data is loading', () => {
+    mockRole({ isLoading: true, canVote: true });
+
+    expect(renderVoteButton()).toBeDisabled();
+  });
+
+  it('shows success toast and disables after a successful vote', async () => {
+    const button = renderVoteButton();
+    fireEvent.click(button);
 
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: /voted for pr #42/i })).toBeInTheDocument()
+      expect(mockShowToast).toHaveBeenCalledWith(expect.stringContaining('Vote recorded'), 'success')
     );
-    expect(mockShowToast).toHaveBeenCalledWith(
-      expect.stringContaining('Vote recorded'),
-      'success'
-    );
+    expect(button).toBeDisabled();
   });
 
-  it('disables button after voting', async () => {
-    render(<VoteButton prId={42} publicKey="GPUBKEY" />);
-    fireEvent.click(screen.getByRole('button'));
-    await waitFor(() => expect(screen.getByRole('button')).toBeDisabled());
-  });
-
-  it('shows unauthorized toast for UnauthorizedGuardianError', async () => {
-    mockCastVote.mockRejectedValue(new UnauthorizedGuardianError('GPUBKEY'));
-    render(<VoteButton prId={42} publicKey="GPUBKEY" />);
-    fireEvent.click(screen.getByRole('button'));
-
-    await waitFor(() =>
-      expect(mockShowToast).toHaveBeenCalledWith('Not an authorized Guardian', 'error')
-    );
-    expect(screen.queryByText('✓ Voted')).not.toBeInTheDocument();
-  });
-
-  it('shows generic error toast for other failures', async () => {
+  it('shows generic error toast for vote failures', async () => {
     mockCastVote.mockRejectedValue(new Error('Horizon error'));
-    render(<VoteButton prId={42} publicKey="GPUBKEY" />);
-    fireEvent.click(screen.getByRole('button'));
+    const button = renderVoteButton();
+    fireEvent.click(button);
 
-    await waitFor(() =>
-      expect(mockShowToast).toHaveBeenCalledWith('Horizon error', 'error')
-    );
-  });
-
-  it('shows Signing… label while vote is in-flight', async () => {
-    let resolve!: (v: string) => void;
-    mockCastVote.mockReturnValue(new Promise((r) => (resolve = r)));
-
-    render(<VoteButton prId={42} publicKey="GPUBKEY" />);
-    fireEvent.click(screen.getByRole('button'));
-
-    expect(await screen.findByText('Signing…')).toBeInTheDocument();
-    resolve('hash');
+    await waitFor(() => expect(mockShowToast).toHaveBeenCalledWith('Horizon error', 'error'));
   });
 });

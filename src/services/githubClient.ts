@@ -1,4 +1,58 @@
-import fetch from 'node-fetch';
+type PRMetadata = {
+  hash: string;
+  title: string;
+  author: string;
+  url: string;
+};
+
+type JsonRecord = Record<string, unknown>;
+
+type PullRequestNode = {
+  oid: string;
+  title: string;
+  url: string;
+  authorLogin?: string;
+};
+
+function asRecord(value: unknown): JsonRecord | undefined {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as JsonRecord)
+    : undefined;
+}
+
+function extractFirstPullRequest(value: unknown): PullRequestNode | undefined {
+  const root = asRecord(value);
+  const data = asRecord(root?.data);
+  const repository = asRecord(data?.repository);
+  const object = asRecord(repository?.object);
+  const associatedPullRequests = asRecord(object?.associatedPullRequests);
+  const edges = associatedPullRequests?.edges;
+
+  if (!Array.isArray(edges)) {
+    return undefined;
+  }
+
+  const firstEdge = asRecord(edges[0]);
+  const node = asRecord(firstEdge?.node);
+
+  if (
+    typeof node?.oid !== 'string' ||
+    typeof node.title !== 'string' ||
+    typeof node.url !== 'string'
+  ) {
+    return undefined;
+  }
+
+  const author = asRecord(node.author);
+  const authorLogin = typeof author?.login === 'string' ? author.login : undefined;
+
+  return {
+    oid: node.oid,
+    title: node.title,
+    url: node.url,
+    authorLogin,
+  };
+}
 
 // GraphQL query to fetch PR details by commit SHA (prHash)
 const PR_QUERY = `
@@ -29,7 +83,7 @@ const PR_QUERY = `
  * @param prHash - The commit SHA associated with the PR.
  * @returns An object containing hash, title, author, and url.
  */
-export async function fetchPRMetadata(prHash: string) {
+export async function fetchPRMetadata(prHash: string): Promise<PRMetadata> {
   const token = process.env.GITHUB_TOKEN;
   if (!token) {
     throw new Error('GITHUB_TOKEN environment variable is not set');
@@ -60,17 +114,15 @@ export async function fetchPRMetadata(prHash: string) {
     throw new Error(`GitHub API request failed: ${response.status} ${response.statusText}`);
   }
 
-  const json = await response.json();
-  const commitObj = json.data?.repository?.object;
-  if (!commitObj || !commitObj.associatedPullRequests?.edges?.[0]?.node) {
+  const pr = extractFirstPullRequest(await response.json());
+  if (!pr) {
     throw new Error('No associated PR found for this commit hash');
   }
 
-  const pr = commitObj.associatedPullRequests.edges[0].node;
   return {
     hash: pr.oid,
     title: pr.title,
-    author: pr.author?.login ?? 'unknown',
+    author: pr.authorLogin ?? 'unknown',
     url: pr.url,
   };
 }

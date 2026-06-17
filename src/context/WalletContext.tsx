@@ -1,223 +1,299 @@
 'use client';
 
- fix/issue-7-freighter-wallet-connection
 import {
   createContext,
-  useContext,
-  useState,
-  useEffect,
-  ReactNode,
   useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
 } from 'react';
-import { getPublicKey } from '@stellar/freighter-api';
+import * as freighterApi from '@stellar/freighter-api';
 
-import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
-import { getAddress, isConnected, requestAccess } from '@stellar/freighter-api';
-import { getReputation } from '@/lib/stellar-interact';
- main
+declare global {
+  interface Window {
+    freighter?: unknown;
+  }
+}
+
+const STORAGE_KEY = 'vero_wallet_publicKey';
+const FREIGHTER_EVENT = 'freighter-account-change';
+
+interface FreighterResultError {
+  message?: string;
+}
+
+interface WalletWatcher {
+  watch: (callback: (params: { address?: string; error?: FreighterResultError }) => void) => {
+    error?: FreighterResultError;
+  };
+  stop: () => void;
+}
+
+interface FreighterApiCompat {
+  getPublicKey?: () => Promise<string>;
+  isConnected?: () => Promise<{ isConnected: boolean; error?: FreighterResultError }>;
+  getAddress?: () => Promise<{ address: string; error?: FreighterResultError }>;
+  requestAccess?: () => Promise<{ address: string; error?: FreighterResultError }>;
+  WatchWalletChanges?: new (timeout?: number) => WalletWatcher;
+}
+
+const freighterClient = freighterApi as FreighterApiCompat;
 
 interface WalletContextType {
   publicKey: string | null;
   isConnected: boolean;
   isLoading: boolean;
   error: string | null;
+  reputation: number;
   connect: () => Promise<void>;
   disconnect: () => void;
 }
 
 const WalletContext = createContext<WalletContextType | undefined>(undefined);
 
-fix/issue-7-freighter-wallet-connection
-const STORAGE_KEY = 'vero_wallet_publicKey';
-const FREIGHTER_EVENT = 'freighter-account-change';
-
-/**
- * WalletProvider component that manages Freighter wallet connection state
- * with localStorage persistence and event listeners.
- */
-
-function getFreighterErrorMessage(error: unknown, fallback: string): string {
+function getErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message) {
     return error.message;
   }
+
   if (typeof error === 'object' && error !== null && 'message' in error) {
     const message = (error as { message?: unknown }).message;
     if (typeof message === 'string' && message.trim()) {
       return message;
     }
   }
+
   return fallback;
 }
 
-async function loadReputation(publicKey: string, alertOnFailure: boolean): Promise<number> {
-  try {
-    return await getReputation(publicKey);
-  } catch (error) {
-    const message = 'Wallet connected, but Stellar reputation could not be loaded. Refresh the page or try again later.';
-    console.error('Failed to load Stellar reputation:', { publicKey, error });
-    if (alertOnFailure) {
-      alert(message);
-    }
-    return 0;
-  }
+function isFreighterAvailable(): boolean {
+  return typeof window !== 'undefined' && Boolean(window.freighter);
 }
 
-main
+async function requestFreighterPublicKey(): Promise<string> {
+  if (typeof freighterClient.requestAccess === 'function') {
+    const access = await freighterClient.requestAccess();
+    if (access.error) {
+      throw new Error(
+        getErrorMessage(access.error, 'Freighter could not grant wallet access. Open Freighter and try again.')
+      );
+    }
+
+    if (!access.address) {
+      throw new Error('Freighter did not return a wallet address. Unlock Freighter and try again.');
+    }
+
+    return access.address;
+  }
+
+  if (typeof freighterClient.getPublicKey === 'function') {
+    const publicKey = await freighterClient.getPublicKey();
+    if (!publicKey) {
+      throw new Error('Freighter did not return a wallet public key');
+    }
+    return publicKey;
+  }
+
+  throw new Error('Freighter wallet API is unavailable');
+}
+
+async function readCurrentFreighterPublicKey(): Promise<string | null> {
+  if (!isFreighterAvailable()) {
+    return null;
+  }
+
+  if (
+    typeof freighterClient.isConnected === 'function' &&
+    typeof freighterClient.getAddress === 'function'
+  ) {
+    const connection = await freighterClient.isConnected();
+    if (connection.error) {
+      throw new Error(
+        getErrorMessage(connection.error, 'Unable to verify Freighter wallet connection.')
+      );
+    }
+
+    if (!connection.isConnected) {
+      return null;
+    }
+
+    const address = await freighterClient.getAddress();
+    if (address.error) {
+      throw new Error(getErrorMessage(address.error, 'Unable to read Freighter wallet address.'));
+    }
+
+    return address.address || null;
+  }
+
+  if (typeof freighterClient.getPublicKey === 'function') {
+    const publicKey = await freighterClient.getPublicKey();
+    return publicKey || null;
+  }
+
+  return null;
+}
+
 export function WalletProvider({ children }: { children: ReactNode }) {
   const [publicKey, setPublicKey] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [reputation, setReputation] = useState(0);
 
-  /**
-   * Initialize wallet state from localStorage on mount
-   */
-  useEffect(() => {
-    const initializeWallet = async () => {
-      try {
- fix/issue-7-freighter-wallet-connection
-        setIsLoading(true);
-        setError(null);
+  const applyVerifiedPublicKey = useCallback((nextPublicKey: string) => {
+    localStorage.setItem(STORAGE_KEY, nextPublicKey);
+    setPublicKey(nextPublicKey);
+    setReputation(0);
+    setError(null);
+  }, []);
 
-        // Try to restore from localStorage
-        const storedKey = localStorage.getItem(STORAGE_KEY);
-        if (storedKey) {
-          setPublicKey(storedKey);
-        }
-      } catch (err) {
-        console.error('Failed to initialize wallet:', err);
-        setError('Failed to initialize wallet');
+  const clearWalletState = useCallback((nextError: string | null = null) => {
+    localStorage.removeItem(STORAGE_KEY);
+    setPublicKey(null);
+    setReputation(0);
+    setError(nextError);
+  }, []);
 
-        const connection = await isConnected();
-        if (connection.error) {
-          console.warn('Unable to restore Freighter connection: isConnected returned an error', connection.error);
-          return;
-        }
-        if (!connection.isConnected) {
-          return;
-        }
+  const refreshVerifiedWallet = useCallback(async (showLoading: boolean) => {
+    if (showLoading) {
+      setIsLoading(true);
+    }
 
-        const address = await getAddress();
-        if (address.error) {
-          console.warn('Unable to restore Freighter connection: getAddress returned an error', address.error);
-          return;
-        }
-        if (!address.address) {
-          console.warn('Unable to restore Freighter connection: Freighter reported a connection without an address');
-          return;
-        }
-
-        setPublicKey(address.address);
-        setReputation(await loadReputation(address.address, false));
-      } catch (error) {
-        console.warn('Unable to restore Freighter connection:', error);
- main
-      } finally {
+    try {
+      const currentPublicKey = await readCurrentFreighterPublicKey();
+      if (currentPublicKey) {
+        applyVerifiedPublicKey(currentPublicKey);
+      } else {
+        clearWalletState();
+      }
+    } catch (restoreError) {
+      console.error('Failed to verify wallet connection:', restoreError);
+      clearWalletState(getErrorMessage(restoreError, 'Failed to verify wallet connection'));
+    } finally {
+      if (showLoading) {
         setIsLoading(false);
+      }
+    }
+  }, [applyVerifiedPublicKey, clearWalletState]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const initializeWallet = async () => {
+      setIsLoading(true);
+
+      try {
+        const storedPublicKey = localStorage.getItem(STORAGE_KEY);
+        const currentPublicKey = await readCurrentFreighterPublicKey();
+        if (!isMounted) {
+          return;
+        }
+
+        if (!currentPublicKey) {
+          clearWalletState();
+          return;
+        }
+
+        if (!storedPublicKey || storedPublicKey === currentPublicKey) {
+          applyVerifiedPublicKey(currentPublicKey);
+          return;
+        }
+
+        clearWalletState();
+      } catch (restoreError) {
+        if (!isMounted) {
+          return;
+        }
+
+        console.error('Failed to initialize wallet:', restoreError);
+        clearWalletState(getErrorMessage(restoreError, 'Failed to initialize wallet'));
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
       }
     };
 
-    initializeWallet();
-  }, []);
+    void initializeWallet();
 
-  /**
-   * Set up Freighter account change listener
-   */
+    return () => {
+      isMounted = false;
+    };
+  }, [applyVerifiedPublicKey, clearWalletState]);
+
   useEffect(() => {
     const handleAccountChange = () => {
-      // When account changes, clear the stored key and disconnect
-      localStorage.removeItem(STORAGE_KEY);
-      setPublicKey(null);
-      setError(null);
+      void refreshVerifiedWallet(false);
     };
 
     window.addEventListener(FREIGHTER_EVENT, handleAccountChange);
 
+    const WatchWalletChanges = isFreighterAvailable()
+      ? freighterClient.WatchWalletChanges
+      : undefined;
+    const watcher = typeof WatchWalletChanges === 'function' ? new WatchWalletChanges() : null;
+    const watchResult = watcher?.watch(({ address, error: watchError }) => {
+      if (watchError || !address) {
+        clearWalletState(
+          watchError ? getErrorMessage(watchError, 'Freighter wallet changed.') : null
+        );
+        return;
+      }
+
+      applyVerifiedPublicKey(address);
+    });
+
+    if (watchResult?.error) {
+      console.warn('Unable to watch Freighter wallet changes:', watchResult.error);
+    }
+
     return () => {
       window.removeEventListener(FREIGHTER_EVENT, handleAccountChange);
+      watcher?.stop();
     };
-  }, []);
+  }, [applyVerifiedPublicKey, clearWalletState, refreshVerifiedWallet]);
 
-  /**
-   * Connect to Freighter wallet using getPublicKey
-   */
   const connect = useCallback(async () => {
-    try {
- fix/issue-7-freighter-wallet-connection
-      setIsLoading(true);
-      setError(null);
+    setIsLoading(true);
+    setError(null);
 
-      // Check if Freighter is installed
-      if (!window.freighter) {
+    try {
+      if (!isFreighterAvailable()) {
         throw new Error('Freighter wallet is not installed');
       }
 
-      // Get public key from Freighter
-      const key = await getPublicKey();
-      setPublicKey(key);
-
-      // Persist to localStorage
-      localStorage.setItem(STORAGE_KEY, key);
-    } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : 'Failed to connect wallet';
-      setError(errorMessage);
-      console.error('Wallet connection error:', err);
-      throw err;
+      const nextPublicKey = await requestFreighterPublicKey();
+      applyVerifiedPublicKey(nextPublicKey);
+    } catch (connectError) {
+      const message = getErrorMessage(connectError, 'Failed to connect wallet');
+      console.error('Wallet connection error:', connectError);
+      clearWalletState(message);
     } finally {
       setIsLoading(false);
-
-      const access = await requestAccess();
-      if (access.error) {
-        throw new Error(
-          getFreighterErrorMessage(access.error, 'Freighter could not grant wallet access. Open Freighter and try again.')
-        );
-      }
-      if (!access.address) {
-        throw new Error('Freighter did not return a wallet address. Unlock Freighter and try again.');
-      }
-
-      setPublicKey(access.address);
-      setReputation(await loadReputation(access.address, true));
-    } catch (error) {
-      const message = getFreighterErrorMessage(
-        error,
-        'Freighter wallet connection failed. Install or unlock Freighter, then try again.'
-      );
-      console.error('Failed to connect wallet with Freighter:', error);
-      alert(message);
-  main
     }
-  }, []);
+  }, [applyVerifiedPublicKey, clearWalletState]);
 
-  /**
-   * Disconnect from wallet and clear stored key
-   */
   const disconnect = useCallback(() => {
-    setPublicKey(null);
-    setError(null);
-    localStorage.removeItem(STORAGE_KEY);
-  }, []);
+    clearWalletState();
+  }, [clearWalletState]);
 
-  const value: WalletContextType = {
-    publicKey,
-    isConnected: publicKey !== null,
-    isLoading,
-    error,
-    connect,
-    disconnect,
-  };
-
-  return (
-    <WalletContext.Provider value={value}>
-      {children}
-    </WalletContext.Provider>
+  const value = useMemo<WalletContextType>(
+    () => ({
+      publicKey,
+      isConnected: publicKey !== null,
+      isLoading,
+      error,
+      reputation,
+      connect,
+      disconnect,
+    }),
+    [connect, disconnect, error, isLoading, publicKey, reputation]
   );
+
+  return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;
 }
 
-/**
- * Hook to access wallet context
- * @throws {Error} If used outside of WalletProvider
- */
 export function useWallet(): WalletContextType {
   const context = useContext(WalletContext);
   if (!context) {

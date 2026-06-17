@@ -34,7 +34,7 @@ jest.mock('@stellar/freighter-api', () => ({
   signTransaction: jest.fn(),
 }));
 
-import { assertAuthorizedGuardian, castVote, UnauthorizedGuardianError } from '@/services/contractClient';
+import { castVote } from '@/services/contractClient';
 import { signTransaction } from '@stellar/freighter-api';
 import * as StellarSdk from '@stellar/stellar-sdk';
 
@@ -47,36 +47,6 @@ const mockServer = (StellarSdk.Horizon.Server as jest.Mock).mock.results[0].valu
 const freighterSignTx = signTransaction as jest.MockedFunction<typeof signTransaction>;
 
 // ---------------------------------------------------------------------------
-// assertAuthorizedGuardian
-// ---------------------------------------------------------------------------
-
-describe('assertAuthorizedGuardian', () => {
-  const GUARDIAN = 'GABC1234AUTHORIZED';
-
-  afterEach(() => { delete process.env.NEXT_PUBLIC_GUARDIAN_ADDRESSES; });
-
-  it('allows any address when no guardian list is configured', () => {
-    expect(() => assertAuthorizedGuardian('GRANYONE')).not.toThrow();
-  });
-
-  it('allows an authorized guardian', () => {
-    process.env.NEXT_PUBLIC_GUARDIAN_ADDRESSES = GUARDIAN;
-    expect(() => assertAuthorizedGuardian(GUARDIAN)).not.toThrow();
-  });
-
-  it('throws UnauthorizedGuardianError for unknown address', () => {
-    process.env.NEXT_PUBLIC_GUARDIAN_ADDRESSES = GUARDIAN;
-    expect(() => assertAuthorizedGuardian('GUNKNOWN')).toThrow(UnauthorizedGuardianError);
-  });
-
-  it('supports comma-separated guardian list', () => {
-    process.env.NEXT_PUBLIC_GUARDIAN_ADDRESSES = `${GUARDIAN},GOTHER`;
-    expect(() => assertAuthorizedGuardian('GOTHER')).not.toThrow();
-    expect(() => assertAuthorizedGuardian('GNOTLISTED')).toThrow(UnauthorizedGuardianError);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // castVote
 // ---------------------------------------------------------------------------
 
@@ -85,8 +55,6 @@ describe('castVote', () => {
   const TX_HASH = 'abc123hash';
 
   beforeEach(() => {
-    delete process.env.NEXT_PUBLIC_GUARDIAN_ADDRESSES;
-
     mockServer.loadAccount.mockResolvedValue({
       accountId: () => PUBLIC_KEY,
       sequenceNumber: () => '1',
@@ -102,13 +70,6 @@ describe('castVote', () => {
     mockServer.loadAccount.mockReset();
     mockServer.submitTransaction.mockReset();
     freighterSignTx.mockReset();
-    delete process.env.NEXT_PUBLIC_GUARDIAN_ADDRESSES;
-  });
-
-  it('rejects unauthorized guardian before hitting Horizon', async () => {
-    process.env.NEXT_PUBLIC_GUARDIAN_ADDRESSES = 'GAUTHORIZED';
-    await expect(castVote(42, 'GUNKNOWN')).rejects.toThrow(UnauthorizedGuardianError);
-    expect(mockServer.loadAccount).not.toHaveBeenCalled();
   });
 
   it('returns transaction hash on success', async () => {
@@ -116,7 +77,10 @@ describe('castVote', () => {
     expect(hash).toBe(TX_HASH);
     expect(freighterSignTx).toHaveBeenCalledWith(
       expect.any(String),
-      { networkPassphrase: expect.any(String) }
+      expect.objectContaining({
+        address: PUBLIC_KEY,
+        networkPassphrase: expect.any(String),
+      })
     );
     expect(mockServer.submitTransaction).toHaveBeenCalled();
   });
@@ -127,7 +91,7 @@ describe('castVote', () => {
   });
 
   it('propagates Freighter signing errors', async () => {
-    freighterSignTx.mockRejectedValue(new Error('User rejected'));
+    freighterSignTx.mockResolvedValue({ error: { message: 'User rejected' } } as any);
     await expect(castVote(42, PUBLIC_KEY)).rejects.toThrow('User rejected');
   });
 });
